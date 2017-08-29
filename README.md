@@ -38,7 +38,7 @@ func parsePublicRsaKey(keyBytes []byte) (*BigPublicKey, error) {
 ## Install
 
 Use go to install the library
-`go get github.com/ncw/gmp`
+`go get github.com/sourcekris/x509big`
 
 ## License
 
