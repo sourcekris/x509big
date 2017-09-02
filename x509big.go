@@ -21,7 +21,7 @@ type publicKeyInfo struct {
     PublicKey asn1.BitString
 }
 
-// a big public key type
+// A big.Int public key type
 type BigPublicKey struct {
   N *big.Int
   E *big.Int
@@ -84,7 +84,7 @@ type pkcs1BigPrivateKey struct {
 
 // ParseBigPKIXPublicKey parses a DER encoded public key. These values are
 // typically found in PEM blocks with "BEGIN PUBLIC KEY".
-// Taken from the standard library so we can return a big PublicKey
+// Taken from the standard library so we can return a BigPublicKey
 func ParseBigPKIXPublicKey(derBytes []byte) (pub interface{}, err error) {
   var pki publicKeyInfo
   if rest, err := asn1.Unmarshal(derBytes, &pki); err != nil {
@@ -119,7 +119,7 @@ func getPublicKeyAlgorithmFromOID(oid asn1.ObjectIdentifier) x509.PublicKeyAlgor
   return x509.UnknownPublicKeyAlgorithm
 }
 
-// Taken from standard library, removed DSA, ECDSA support and added big.Int exponent support
+// Taken from standard library, removed DSA, ECDSA support and added BigPublicKey support
 func parsePublicKey(algo x509.PublicKeyAlgorithm, keyData *publicKeyInfo) (interface{}, error) {
   asn1Data := keyData.PublicKey.RightAlign()
   switch algo {
