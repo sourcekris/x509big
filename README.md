@@ -6,12 +6,17 @@ This is useful for experimentation with unsual or known faulty RSA keys with pub
 
 ## Features
 
- * `func ParseBigPKIXPublicKey(derBytes []byte) (pub interface{}, err error)`
-   returns an interface you can assert to be a `BigPublicKey` type which is defined as
+ * `func ParseBigPKCS1PublicKey(derBytes []byte) (*BigPublicKey, err error)`
+   returns a `*BigPublicKey` type which is defined below.
+
+ * `func ParseBigPKCS1PrivateKey(der []byte) (*BigPrivateKey, error)`
+   returns a `*BigPrivateKey` type which is defined below.
 
  * `func MarshalPKCS1BigPrivateKey(key *BigPrivateKey) []byte`
    returns a array of bytes suitable to encode with something like `pem.EncodeToMemory()`
 
+ * `func MarshalPKCS1BigPublicKey(key *BigPublicKey) []byte`
+   returns a array of bytes suitable to encode with something like `pem.EncodeToMemory()`
 
 ## Types
 ```
@@ -39,18 +44,12 @@ An example implementation of parsing a RSA Public Key with a large public expone
 
 ```
 func parsePublicRsaKey(keyBytes []byte) (*x509big.BigPublicKey, error) {
-  key, err := x509big.ParseBigPKIXPublicKey(keyBytes)
+  key, err := x509big.ParseBigPKCS1PublicKey(keyBytes)
   if err != nil {
-    return nil, errors.New("Failed to parse the DER key after decoding.")
+    return nil, fmt.Errorf("parsePublicRsaKey: failed to parse the DER key after decoding: %v", err)
   }
 
-  switch key := key.(type) {
-    case *BigPublicKey:
-      fmt.Printf("n = %d\ne = %d\n", key.N, key.E)
-      return k, nil
-    default:
-      return nil, errors.New("Given key is not an RSA Key")
-  }
+  return key, nil
 }
 ```
 
