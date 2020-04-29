@@ -5,21 +5,15 @@
 package x509big
 
 import (
-	"bytes"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/asn1"
 	"errors"
 	"math/big"
 )
 
-var bigOne = big.NewInt(1)
-
-type publicKeyInfo struct {
-	Raw       asn1.RawContent
-	Algorithm pkix.AlgorithmIdentifier
-	PublicKey asn1.BitString
-}
+var (
+	bigZero = big.NewInt(0)
+	bigOne  = big.NewInt(1)
+)
 
 // BigPublicKey is  big.Int public key type
 type BigPublicKey struct {
@@ -89,83 +83,68 @@ type pkcs1BigPublicKey struct {
 	E *big.Int
 }
 
-// ParseBigPKIXPublicKey parses a DER encoded public key. These values are
-// typically found in PEM blocks with "BEGIN PUBLIC KEY".
-// Taken from the standard library so we can return a BigPublicKey
-func ParseBigPKIXPublicKey(derBytes []byte) (pub interface{}, err error) {
-	var pki publicKeyInfo
-	if rest, err := asn1.Unmarshal(derBytes, &pki); err != nil {
+// ParseBigPKCS1PublicKey parses an RSA public key in PKCS#1, ASN.1 DER form.
+func ParseBigPKCS1PublicKey(der []byte) (*BigPublicKey, error) {
+	var pub pkcs1BigPublicKey
+	rest, err := asn1.Unmarshal(der, &pub)
+	if err != nil {
 		return nil, err
-	} else if len(rest) != 0 {
-		return nil, errors.New("x509big: trailing data after ASN.1 of public-key")
 	}
-	algo := getPublicKeyAlgorithmFromOID(pki.Algorithm.Algorithm)
-	if algo == x509.UnknownPublicKeyAlgorithm {
-		return nil, errors.New("x509big: unknown public key algorithm")
+	if len(rest) > 0 {
+		return nil, asn1.SyntaxError{Msg: "trailing data"}
 	}
-	return parsePublicKey(algo, &pki)
+
+	if pub.N.Sign() <= 0 || pub.E.Cmp(bigZero) <= 0 {
+		return nil, errors.New("x509big: public key contains zero or negative value")
+	}
+
+	return &BigPublicKey{
+		E: pub.E,
+		N: pub.N,
+	}, nil
 }
 
-// Taken from standard library
-var (
-	oidPublicKeyRSA   = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
-	oidPublicKeyDSA   = asn1.ObjectIdentifier{1, 2, 840, 10040, 4, 1}
-	oidPublicKeyECDSA = asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1}
-)
-
-// Taken from standard library
-func getPublicKeyAlgorithmFromOID(oid asn1.ObjectIdentifier) x509.PublicKeyAlgorithm {
-	switch {
-	case oid.Equal(oidPublicKeyRSA):
-		return x509.RSA
-	case oid.Equal(oidPublicKeyDSA):
-		return x509.DSA
-	case oid.Equal(oidPublicKeyECDSA):
-		return x509.ECDSA
+// ParseBigPKCS1PrivateKey returns an RSA private key from its ASN.1 PKCS#1 DER encoded form.
+func ParseBigPKCS1PrivateKey(der []byte) (*BigPrivateKey, error) {
+	var priv pkcs1BigPrivateKey
+	rest, err := asn1.Unmarshal(der, &priv)
+	if len(rest) > 0 {
+		return nil, asn1.SyntaxError{Msg: "trailing data"}
 	}
-	return x509.UnknownPublicKeyAlgorithm
-}
-
-// Taken from standard library, removed DSA, ECDSA support and added BigPublicKey support
-func parsePublicKey(algo x509.PublicKeyAlgorithm, keyData *publicKeyInfo) (interface{}, error) {
-	asn1Data := keyData.PublicKey.RightAlign()
-	switch algo {
-	case x509.RSA:
-		// RSA public keys must have a NULL in the parameters
-		// (https://tools.ietf.org/html/rfc3279#section-2.3.1).
-		if !bytes.Equal(keyData.Algorithm.Parameters.FullBytes, asn1.NullBytes) {
-			return nil, errors.New("x509big: RSA key missing NULL parameters")
-		}
-
-		p := new(BigPublicKey)
-		rest, err := asn1.Unmarshal(asn1Data, p)
-		if err != nil {
-			return nil, err
-		}
-		if len(rest) != 0 {
-			return nil, errors.New("x509big: trailing data after RSA public key")
-		}
-
-		if p.N.Sign() <= 0 {
-			return nil, errors.New("x509big: RSA modulus is not a positive number")
-		}
-		if p.E.Sign() <= 0 {
-			return nil, errors.New("x509big: RSA public exponent is not a positive number")
-		}
-
-		pub := &BigPublicKey{
-			E: p.E,
-			N: p.N,
-		}
-
-		return pub, nil
-	case x509.DSA:
-		return nil, errors.New("x509big: DSA Public Keys not supported")
-	case x509.ECDSA:
-		return nil, errors.New("x509big: ECDSA Public Keys not supported")
-	default:
-		return nil, nil
+	if err != nil {
+		return nil, err
 	}
+
+	if priv.Version > 1 {
+		return nil, errors.New("x509big: unsupported private key version")
+	}
+
+	if priv.N.Sign() <= 0 || priv.D.Sign() <= 0 || priv.P.Sign() <= 0 || priv.Q.Sign() <= 0 {
+		return nil, errors.New("x509big: private key contains zero or negative value")
+	}
+
+	key := new(BigPrivateKey)
+	key.PublicKey = BigPublicKey{
+		E: priv.E,
+		N: priv.N,
+	}
+
+	key.D = priv.D
+	key.Primes = make([]*big.Int, 2+len(priv.AdditionalPrimes))
+	key.Primes[0] = priv.P
+	key.Primes[1] = priv.Q
+	for i, a := range priv.AdditionalPrimes {
+		if a.Prime.Sign() <= 0 {
+			return nil, errors.New("x509big: private key contains zero or negative prime")
+		}
+		key.Primes[i+2] = a.Prime
+		// We ignore the other two values because rsa will calculate
+		// them as needed.
+	}
+
+	key.precompute()
+
+	return key, nil
 }
 
 // MarshalPKCS1BigPrivateKey converts a big private key to ASN.1 DER encoded form.
