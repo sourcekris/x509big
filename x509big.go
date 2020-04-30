@@ -5,15 +5,24 @@
 package x509big
 
 import (
+	"bytes"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"errors"
 	"math/big"
 )
 
 var (
-	bigZero = big.NewInt(0)
-	bigOne  = big.NewInt(1)
+	bigZero         = big.NewInt(0)
+	bigOne          = big.NewInt(1)
+	oidPublicKeyRSA = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
 )
+
+type publicKeyInfo struct {
+	Raw       asn1.RawContent
+	Algorithm pkix.AlgorithmIdentifier
+	PublicKey asn1.BitString
+}
 
 // BigPublicKey is  big.Int public key type
 type BigPublicKey struct {
@@ -145,6 +154,50 @@ func ParseBigPKCS1PrivateKey(der []byte) (*BigPrivateKey, error) {
 	key.precompute()
 
 	return key, nil
+}
+
+// parsePublicKey decodes the public key returning a BigPublicKey struct.
+func parsePublicKey(keyData *publicKeyInfo) (*BigPublicKey, error) {
+	asn1Data := keyData.PublicKey.RightAlign()
+	// RSA public keys must have a NULL in the parameters
+	// (https://tools.ietf.org/html/rfc3279#section-2.3.1).
+	if !bytes.Equal(keyData.Algorithm.Parameters.FullBytes, asn1.NullBytes) {
+		return nil, errors.New("x509big: RSA key missing NULL parameters")
+	}
+
+	p := new(BigPublicKey)
+	rest, err := asn1.Unmarshal(asn1Data, p)
+	if err != nil {
+		return nil, err
+	}
+	if len(rest) != 0 {
+		return nil, errors.New("x509big: trailing data after RSA public key")
+	}
+	if p.N.Sign() <= 0 || p.E.Sign() <= 0 {
+		return nil, errors.New("x509big: RSA modulus or exponent is not a positive number")
+	}
+
+	pub := &BigPublicKey{
+		E: p.E,
+		N: p.N,
+	}
+
+	return pub, nil
+}
+
+// ParseBigPKIXPublicKey parses a DER encoded public key. These values are
+// typically found in PEM blocks with "BEGIN PUBLIC KEY".
+func ParseBigPKIXPublicKey(derBytes []byte) (*BigPublicKey, error) {
+	var pki publicKeyInfo
+	if rest, err := asn1.Unmarshal(derBytes, &pki); err != nil {
+		return nil, err
+	} else if len(rest) != 0 {
+		return nil, errors.New("x509big: trailing data after ASN.1 of public-key")
+	}
+	if !pki.Algorithm.Algorithm.Equal(oidPublicKeyRSA) {
+		return nil, errors.New("x509big: unsupported public key algorithm")
+	}
+	return parsePublicKey(&pki)
 }
 
 // MarshalPKCS1BigPrivateKey converts a big private key to ASN.1 DER encoded form.
