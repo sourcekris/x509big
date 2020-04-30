@@ -9,6 +9,9 @@ This is useful for experimentation with unsual or known faulty RSA keys with pub
  * `func ParseBigPKCS1PublicKey(derBytes []byte) (*BigPublicKey, err error)`
    returns a `*BigPublicKey` type which is defined below.
 
+ * `func ParseBigPKIXPublicKey(derBytes []byte) (*BigPublicKey, err error)`
+   returns a `*BigPublicKey` type which is defined below.
+
  * `func ParseBigPKCS1PrivateKey(der []byte) (*BigPrivateKey, error)`
    returns a `*BigPrivateKey` type which is defined below.
 
